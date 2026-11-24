@@ -281,7 +281,7 @@ body>*:not(#sheet){display:none!important}
 .exwm{position:fixed;inset:0;pointer-events:none;z-index:50;background-repeat:repeat}
 .exov{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(8,12,18,.94)}.exov .card{max-width:420px;width:100%}
 .extip{position:fixed;left:12px;right:12px;bottom:16px;z-index:80;padding:12px 14px;border-radius:12px;background:#341820;border:1px solid #E5202E;color:var(--tx);text-align:center;font-weight:600}
-@media print{.exq,.exwm,.exov,.extip{display:none!important}body:before{content:"Sınav sırasında yazdırma kapalıdır.";color:#000}}
+@media print{.exq,.exwm,.exov,.extip{display:none!important}body:has(.exq):before{content:"Sınav sırasında yazdırma kapalıdır.";color:#000}}
 </style>
 </head>
 <body>
