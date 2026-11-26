@@ -248,12 +248,13 @@ details.more .item{margin-bottom:8px;background:var(--bg)}
 #pg h1{font-size:17px;margin:0 0 4px}#pg .sh p{font-size:11px;margin:0 0 3px}#pg .sh svg{width:26mm;height:26mm;display:block;flex:none}
 #pg.ex{position:relative;width:210mm;height:296mm;padding:10mm;box-sizing:border-box}#pg.ex .sh{display:block;margin:0 0 4mm;text-align:center}#pg.ex h1{font-size:15px;line-height:1.25;margin:0}#pg.ex .cols{display:flex;gap:4mm;align-items:flex-start}#pg.ex table{width:93mm;flex:none}#pg.ex th{height:6mm}#pg .gz{position:absolute;left:0;right:0;bottom:10mm;text-align:center;font-size:12px}#pg .gz b,#pg .gz span{display:block;line-height:1.3;margin-top:2mm}
 
-@media print{
+/* @page en üst düzeyde olmalı: @media içinde bazı tarayıcılar yok sayar ve üstbilgi/altbilgi (başlık, tarih, adres, sayfa no) basar. margin:0 bunu kapatır; kenar boşluğunu #pg ve .ex-paper-page kendi padding'iyle verir. */
 @page{size:A4 portrait;margin:0}
+@media print{
 html,body{background:#fff!important;padding:0!important;margin:0!important;max-width:none!important}
 body>*:not(#sheet){display:none!important}
 #sheet{display:block!important;position:static;background:#fff;overflow:visible;padding:0}#sheet .sb{display:none!important}
-#pg{zoom:1!important;margin:0;box-shadow:none;width:100%;height:auto;padding:0;box-sizing:border-box}#pg.ex{padding:0}
+#pg{zoom:1!important;margin:0;box-shadow:none;width:210mm;height:296mm;padding:10mm 20mm;box-sizing:border-box;overflow:hidden;break-after:avoid}#pg.ex{padding:10mm}
 .ex-papers-container{padding:0!important;zoom:1!important}
 .ex-paper-page{margin:0!important;box-shadow:none!important;border-radius:0!important;height:296mm!important;break-after:page!important}
 .ex-paper-page:last-child{break-after:auto!important}
