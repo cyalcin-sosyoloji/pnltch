@@ -2033,6 +2033,12 @@ function startCameraScanner(){
       <div class="scanner-guide"></div>
     </div>
     <div id="scannerStatus" class="scanner-status">Kağıdın altındaki QR kodu çerçeveye ortalayın…</div>
+    <div style="margin-top:12px; width:100%; max-width:400px;">
+      <label class="btn sec" style="display:block; text-align:center; cursor:pointer; width:100%;">
+        📁 Galeriden / Fotoğraftan QR Seç
+        <input type="file" accept="image/*" style="display:none" onchange="handleQRImageUpload(event)">
+      </label>
+    </div>
   `;
   document.body.appendChild(overlay);
   const video=document.getElementById('scannerVideo');
@@ -2045,9 +2051,42 @@ function startCameraScanner(){
     video.play();
     requestAnimationFrame(()=>scanTick(video,canvasElement,canvas));
   }).catch(err=>{
-    alert('Kamera erişimi reddedildi.');
-    closeExamScanner();
+    navigator.mediaDevices.getUserMedia({video:true})
+    .then(stream=>{
+      scannerStream=stream;
+      video.srcObject=stream;
+      video.play();
+      requestAnimationFrame(()=>scanTick(video,canvasElement,canvas));
+    }).catch(e=>{
+      alert('Kamera erişimi sağlanamadı. Lütfen "Galeriden / Fotoğraftan QR Seç" düğmesini kullanın.');
+    });
   });
+}
+
+function handleQRImageUpload(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      const canvas=document.createElement('canvas');
+      canvas.width=img.naturalWidth;
+      canvas.height=img.naturalHeight;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0);
+      const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
+      const code=window.jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:"attemptBoth"});
+      if(code){
+        if(navigator.vibrate)navigator.vibrate(200);
+        processScannedQR(code.data);
+      }else{
+        alert('Fotoğrafta geçerli bir sınav QR kodu bulunamadı. Lütfen daha net bir açıdan çekip tekrar deneyin.');
+      }
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 
 function scanTick(video,canvasElement,canvas){
@@ -2057,7 +2096,7 @@ function scanTick(video,canvasElement,canvas){
     canvasElement.width=video.videoWidth;
     canvas.getContext('2d').drawImage(video,0,0,canvasElement.width,canvasElement.height);
     const imageData=canvas.getContext('2d').getImageData(0,0,canvasElement.width,canvasElement.height);
-    const code=window.jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:"dontInvert"});
+    const code=window.jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:"attemptBoth"});
     if(code){
       if(navigator.vibrate)navigator.vibrate(200);
       try{let ctx=new(window.AudioContext||window.webkitAudioContext)();let o=ctx.createOscillator();let g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.setValueAtTime(880,ctx.currentTime);o.start();o.stop(ctx.currentTime+0.15);}catch(e){}
@@ -2103,54 +2142,127 @@ async function processScannedQR(qrText){
       const resDoc=await resRef.get();
       const studentAnswers=(resDoc.exists&&resDoc.data().a)||{};
 
-      let correct=0, incorrect=0, empty=0;
-      const total=Object.keys(keyData).length;
-      for(let qNo of Object.keys(keyData)){
-        const correctAns=(keyData[qNo]||'').trim().toUpperCase();
-        const studentAns=(studentAnswers[qNo]||'-').trim().toUpperCase();
-        if(!studentAns||studentAns==='-')empty++;
-        else if(studentAns===correctAns)correct++;
-        else incorrect++;
-      }
-      const score=total>0?Math.round((correct/total)*100):0;
-
-      await resRef.set({
-        no: studentId,
-        st: Date.now(),
-        a: studentAnswers,
-        fin: true,
-        fat: Date.now(),
-        manual: false,
-        scanned: true
-      },{merge:true});
-
-      showResultModal(studentId, score, correct, incorrect, empty, total, foundCid, xid, examData, studentAnswers, keyData);
+      showAnswerCheckingModal(foundCid, xid, studentId, examData, studentAnswers, keyData);
     }catch(err){
       console.error(err);
-      alert('Sınav puanlanırken hata oluştu: '+(err.message||err));
+      alert('Sınav taranırken hata oluştu: '+(err.message||err));
     }
   }else{
     alert('Geçersiz sınav QR kodu: '+qrText);
   }
 }
 
-function showResultModal(studentId, score, correct, incorrect, empty, total, cid, xid, examData, studentAnswers, keyData){
+function showAnswerCheckingModal(cid, xid, studentId, examData, studentAnswers, keyData){
+  const questions=examData.q||[];
+  const localAns={...studentAnswers};
+
   const overlay=document.createElement('div');
   overlay.className='scanner-overlay';
   overlay.innerHTML=`
-    <div class="card" style="max-width:420px; width:100%; text-align:center; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
-      <h2 style="margin:0 0 8px;">Sınav Sonucu (QR Okundu)</h2>
-      <div style="font-size:42px; font-weight:800; color:var(--ac); margin:8px 0;">${score} Puan</div>
-      <div class="mut" style="margin-bottom:12px;">Öğrenci No: <b>${studentId}</b></div>
-      <div class="stats s3" style="margin-bottom:16px; display:flex; justify-content:space-around;">
+    <div class="card" style="max-width:540px; width:100%; max-height:90vh; overflow:auto; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div>
+          <b style="font-size:16px;">Sınav Cevap Kontrolü</b>
+          <div class="mut sm">Öğrenci No: ${studentId} · ${examData.title||'Sınav'}</div>
+        </div>
+        <button type="button" class="btn ghost" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Kapat</button>
+      </div>
+      <p class="mut sm" style="margin-bottom:12px;">Kağıttaki işaretlemeleri kontrol edin veya hızlıca şıkları seçip puanlayın:</p>
+
+      <div id="checkQuestionsList" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow:auto; margin-bottom:16px; padding-right:4px;">
+        ${questions.map((q, idx)=>{
+          const cur=localAns[q.i]||'';
+          const correct=keyData[q.i]||'';
+          const opts=Object.keys(q.o).sort();
+          return `
+            <div style="padding:10px; background:var(--pn); border-radius:8px; border:1px solid var(--ln);">
+              <div class="sm" style="margin-bottom:6px;"><b>${idx+1}. Soru:</b> ${q.t}</div>
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                ${opts.map(L=>`
+                  <button type="button" class="btn sm ${cur===L?'':'sec'}" style="min-width:34px; height:34px; font-weight:700; background:${cur===L?'var(--ac)':'var(--pn)'}; color:${cur===L?'var(--ink)':'var(--tx)'};" onclick="setAnswerChoice('${studentId}','${q.i}','${L}',this)">${L}</button>
+                `).join('')}
+                <span class="sm mut" style="margin-left:auto;">Doğru: <b>${correct}</b></span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn" style="flex:1;" onclick="saveAndScoreExam('${cid}','${xid}','${studentId}')">Puanla ve Kaydet</button>
+        <button type="button" class="btn sec" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıda Geç</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window._tempExamState = { cid, xid, studentId, questions, localAns, keyData };
+}
+
+window.setAnswerChoice=function(studentId, qId, choice, btn){
+  window._tempExamState.localAns[qId]=choice;
+  const parent=btn.parentElement;
+  parent.querySelectorAll('button').forEach(b=>{
+    b.className='btn sm sec';
+    b.style.background='var(--pn)';
+    b.style.color='var(--tx)';
+  });
+  btn.className='btn sm';
+  btn.style.background='var(--ac)';
+  btn.style.color='var(--ink)';
+};
+
+window.saveAndScoreExam=async function(cid, xid, studentId){
+  const state=window._tempExamState;
+  if(!state)return;
+  const {questions, localAns, keyData}=state;
+
+  let correct=0, incorrect=0, empty=0;
+  const total=questions.length;
+  for(let q of questions){
+    const qNo=String(q.i);
+    const correctAns=(keyData[qNo]||'').trim().toUpperCase();
+    const studentAns=(localAns[qNo]||'-').trim().toUpperCase();
+    if(!studentAns||studentAns==='-')empty++;
+    else if(studentAns===correctAns)correct++;
+    else incorrect++;
+  }
+  const score=total>0?Math.round((correct/total)*100):0;
+
+  try{
+    const dbInstance=getDb();
+    await dbInstance.collection('courses').doc(cid).collection('tx').doc(xid).collection('res').doc(studentId).set({
+      no: studentId,
+      st: Date.now(),
+      a: localAns,
+      fin: true,
+      fat: Date.now(),
+      manual: true,
+      scanned: true
+    },{merge:true});
+
+    document.querySelectorAll('.scanner-overlay').forEach(el=>el.remove());
+    showResultModal(studentId, score, correct, incorrect, empty, total);
+  }catch(err){
+    alert('Kaydedilirken hata: '+err.message);
+  }
+};
+
+function showResultModal(studentId, score, correct, incorrect, empty, total){
+  const overlay=document.createElement('div');
+  overlay.className='scanner-overlay';
+  overlay.innerHTML=`
+    <div class="card" style="max-width:400px; width:100%; text-align:center; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
+      <h2 style="margin:0 0 8px;">Sınav Puanlandı!</h2>
+      <div style="font-size:48px; font-weight:800; color:var(--ac); margin:12px 0;">${score} Puan</div>
+      <div class="mut" style="margin-bottom:16px;">Öğrenci No: <b>${studentId}</b></div>
+      <div class="stats s3" style="margin-bottom:20px; display:flex; justify-content:space-around;">
         <div class="stat"><span style="color:#8FD6B1">Doğru</span><b>${correct}</b></div>
         <div class="stat"><span style="color:#F29B9B">Yanlış</span><b>${incorrect}</b></div>
         <div class="stat"><span>Boş</span><b>${empty}</b></div>
       </div>
-      <p class="mut sm" style="margin-bottom:16px;">Toplam ${total} soru değerlendirildi.</p>
-      <div style="display:flex; gap:8px; flex-direction:column;">
-        <button type="button" class="btn" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıdı Oku</button>
-        <button type="button" class="btn sec" onclick="this.closest('.scanner-overlay').remove();">Kapat ve Tamamla</button>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn" style="flex:1;" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıdı Oku</button>
+        <button type="button" class="btn sec" style="flex:1;" onclick="this.closest('.scanner-overlay').remove();">Bitir</button>
       </div>
     </div>
   `;
