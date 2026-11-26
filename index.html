@@ -5,8 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Hoca Paneli</title>
+<script src="https://cdn.jsdelivr.net/npm/jsQR@1.4.0/dist/jsQR.min.js"></script>
 
 <style>:root{--bg:#0E1621;--pn:#16202D;--cd:#1D2B3B;--ln:#2A394B;--tx:#E8EDF3;--mu:#A9B6C6;--ac:#F5B544;--ink:#1A1203}
+.scanner-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;color:var(--tx);font-family:inherit}
+.scanner-viewport{position:relative;width:100%;max-width:400px;aspect-ratio:3/4;border-radius:16px;overflow:hidden;background:#000;border:2px solid var(--ac)}
+.scanner-viewport video{width:100%;height:100%;object-fit:cover}
+.scanner-guide{position:absolute;inset:20%;border:2px dashed var(--ac);border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.5);pointer-events:none}
+.scanner-status{margin-top:16px;font-size:14px;color:var(--mu);text-align:center}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 Inter,system-ui,sans-serif}
 .app{max-width:480px;min-height:100vh;margin:auto;display:flex;flex-direction:column}
 header{position:sticky;top:0;z-index:30;display:flex;gap:12px;align-items:center;padding:16px 16px 14px;background:var(--pn);border-bottom:1px solid var(--ln)}h1{margin:0;font-size:22px}
@@ -1998,5 +2004,64 @@ firebase/app/dist/esm/index.esm.js:
 if(!window.FIREBASE_CONFIG.apiKey){document.getElementById('root').innerHTML='<p style="color:#E8EDF3;font:15px Inter,sans-serif;padding:24px">Firebase ayarlari bos. config.json dosyasini doldur.</p>';}
 else{var s=document.createElement('script');s.textContent=document.getElementById('app-js').textContent;document.body.appendChild(s);}
 </script>
+<script>
+let scannerStream=null;let scannerActive=false;
+function openExamScanner(){startCameraScanner();}
+function startCameraScanner(){
+  scannerActive=true;
+  const overlay=document.createElement('div');
+  overlay.id='examScannerModal';
+  overlay.className='scanner-overlay';
+  overlay.innerHTML=`
+    <div style="display:flex; justify-content:space-between; width:100%; max-width:400px; margin-bottom:12px; align-items:center;">
+      <b>Kamerayla Sınav Oku (QR)</b>
+      <button type="button" class="btn ghost" style="min-height:36px; padding:0 12px;" onclick="closeExamScanner()">Kapat</button>
+    </div>
+    <div class="scanner-viewport">
+      <video id="scannerVideo" autoplay playsinline muted></video>
+      <div class="scanner-guide"></div>
+    </div>
+    <div id="scannerStatus" class="scanner-status">Kağıdın altındaki QR kodu çerçeveye ortalayın…</div>
+  `;
+  document.body.appendChild(overlay);
+  const video=document.getElementById('scannerVideo');
+  const canvasElement=document.createElement('canvas');
+  const canvas=canvasElement.getContext('2d');
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}})
+  .then(stream=>{
+    scannerStream=stream;
+    video.srcObject=stream;
+    video.play();
+    requestAnimationFrame(()=>scanTick(video,canvasElement,canvas));
+  }).catch(err=>{
+    alert('Kamera erişimi reddedildi.');
+    closeExamScanner();
+  });
+}
+function scanTick(video,canvasElement,canvas){
+  if(!scannerActive)return;
+  if(video.readyState===video.HAVE_ENOUGH_DATA){
+    canvasElement.height=video.videoHeight;
+    canvasElement.width=video.videoWidth;
+    canvas.drawImage(video,0,0,canvasElement.width,canvasElement.height);
+    const imageData=canvas.getImageData(0,0,canvasElement.width,canvasElement.height);
+    const code=window.jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:"dontInvert"});
+    if(code){
+      if(navigator.vibrate)navigator.vibrate(200);
+      try{let ctx=new(window.AudioContext||window.webkitAudioContext)();let o=ctx.createOscillator();let g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.setValueAtTime(880,ctx.currentTime);o.start();o.stop(ctx.currentTime+0.15);}catch(e){}
+      closeExamScanner();
+      alert("Okunan Sınav QR Kodu: " + code.data);
+      return;
+    }
+  }
+  requestAnimationFrame(()=>scanTick(video,canvasElement,canvas));
+}
+function closeExamScanner(){
+  scannerActive=false;
+  if(scannerStream){scannerStream.getTracks().forEach(t=>t.stop());scannerStream=null;}
+  const m=document.getElementById('examScannerModal');if(m)m.remove();
+}
+</script>
+<button onclick="openExamScanner()" style="position:fixed;bottom:80px;right:16px;z-index:999;background:var(--ac);color:var(--ink);border:0;border-radius:28px;padding:12px 20px;font:700 14px inherit;box-shadow:0 4px 16px rgba(0,0,0,0.4);cursor:pointer;">📷 Sınav Oku</button>
 </body>
 </html>
