@@ -2080,23 +2080,27 @@ async function processScannedQR(qrText){
       const coursesSnap=await dbInstance.collection('courses').get();
       let foundCid=null;
       let keyData=null;
+      let examData=null;
 
       for(let docSnap of coursesSnap.docs){
         const cid=docSnap.id;
+        const txDoc=await dbInstance.collection('courses').doc(cid).collection('tx').doc(xid).get();
         const keyDoc=await dbInstance.collection('courses').doc(cid).collection('tx').doc(xid).collection('key').doc('main').get();
         if(keyDoc.exists){
           foundCid=cid;
+          examData=txDoc.exists?txDoc.data():{};
           keyData=keyDoc.data().a||{};
           break;
         }
       }
 
       if(!foundCid||!keyData){
-        alert('Bu sınavın cevap anahtarı veritabanında bulunamadı (Sınav ID: '+xid+').');
+        alert('Bu sınavın cevap anahtarı bulunamadı (Sınav ID: '+xid+'). Lütfen sınavı başlatın.');
         return;
       }
 
-      const resDoc=await dbInstance.collection('courses').doc(foundCid).collection('tx').doc(xid).collection('res').doc(studentId).get();
+      const resRef=dbInstance.collection('courses').doc(foundCid).collection('tx').doc(xid).collection('res').doc(studentId);
+      const resDoc=await resRef.get();
       const studentAnswers=(resDoc.exists&&resDoc.data().a)||{};
 
       let correct=0, incorrect=0, empty=0;
@@ -2110,7 +2114,7 @@ async function processScannedQR(qrText){
       }
       const score=total>0?Math.round((correct/total)*100):0;
 
-      await dbInstance.collection('courses').doc(foundCid).collection('tx').doc(xid).collection('res').doc(studentId).set({
+      await resRef.set({
         no: studentId,
         st: Date.now(),
         a: studentAnswers,
@@ -2120,7 +2124,7 @@ async function processScannedQR(qrText){
         scanned: true
       },{merge:true});
 
-      showResultModal(studentId, score, correct, incorrect, empty, total);
+      showResultModal(studentId, score, correct, incorrect, empty, total, foundCid, xid, examData, studentAnswers, keyData);
     }catch(err){
       console.error(err);
       alert('Sınav puanlanırken hata oluştu: '+(err.message||err));
@@ -2130,22 +2134,23 @@ async function processScannedQR(qrText){
   }
 }
 
-function showResultModal(studentId, score, correct, incorrect, empty, total){
+function showResultModal(studentId, score, correct, incorrect, empty, total, cid, xid, examData, studentAnswers, keyData){
   const overlay=document.createElement('div');
   overlay.className='scanner-overlay';
   overlay.innerHTML=`
-    <div class="card" style="max-width:400px; width:100%; text-align:center; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
-      <h2 style="margin:0 0 8px;">Sınav Sonucu</h2>
-      <div style="font-size:48px; font-weight:800; color:var(--ac); margin:12px 0;">${score} Puan</div>
-      <div class="mut" style="margin-bottom:16px;">Öğrenci No: <b>${studentId}</b></div>
-      <div class="stats s3" style="margin-bottom:20px; display:flex; justify-content:space-around;">
+    <div class="card" style="max-width:420px; width:100%; text-align:center; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
+      <h2 style="margin:0 0 8px;">Sınav Sonucu (QR Okundu)</h2>
+      <div style="font-size:42px; font-weight:800; color:var(--ac); margin:8px 0;">${score} Puan</div>
+      <div class="mut" style="margin-bottom:12px;">Öğrenci No: <b>${studentId}</b></div>
+      <div class="stats s3" style="margin-bottom:16px; display:flex; justify-content:space-around;">
         <div class="stat"><span style="color:#8FD6B1">Doğru</span><b>${correct}</b></div>
         <div class="stat"><span style="color:#F29B9B">Yanlış</span><b>${incorrect}</b></div>
         <div class="stat"><span>Boş</span><b>${empty}</b></div>
       </div>
-      <div style="display:flex; gap:8px;">
-        <button type="button" class="btn" style="flex:1;" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıdı Oku</button>
-        <button type="button" class="btn sec" style="flex:1;" onclick="this.closest('.scanner-overlay').remove();">Kapat</button>
+      <p class="mut sm" style="margin-bottom:16px;">Toplam ${total} soru değerlendirildi.</p>
+      <div style="display:flex; gap:8px; flex-direction:column;">
+        <button type="button" class="btn" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıdı Oku</button>
+        <button type="button" class="btn sec" onclick="this.closest('.scanner-overlay').remove();">Kapat ve Tamamla</button>
       </div>
     </div>
   `;
