@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex">
 <title>Hoca Paneli</title>
 <script src="https://cdn.jsdelivr.net/npm/jsQR@1.4.0/dist/jsQR.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
 
 <style>:root{--bg:#0E1621;--pn:#16202D;--cd:#1D2B3B;--ln:#2A394B;--tx:#E8EDF3;--mu:#A9B6C6;--ac:#F5B544;--ink:#1A1203}
 .scanner-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;color:var(--tx);font-family:inherit}
@@ -2006,7 +2008,16 @@ else{var s=document.createElement('script');s.textContent=document.getElementByI
 </script>
 <script>
 let scannerStream=null;let scannerActive=false;
+
+function getDb(){
+  if(!firebase.apps.length){
+    firebase.initializeApp(window.FIREBASE_CONFIG);
+  }
+  return firebase.firestore();
+}
+
 function openExamScanner(){startCameraScanner();}
+
 function startCameraScanner(){
   scannerActive=true;
   const overlay=document.createElement('div');
@@ -2038,24 +2049,109 @@ function startCameraScanner(){
     closeExamScanner();
   });
 }
+
 function scanTick(video,canvasElement,canvas){
   if(!scannerActive)return;
   if(video.readyState===video.HAVE_ENOUGH_DATA){
     canvasElement.height=video.videoHeight;
     canvasElement.width=video.videoWidth;
-    canvas.drawImage(video,0,0,canvasElement.width,canvasElement.height);
-    const imageData=canvas.getImageData(0,0,canvasElement.width,canvasElement.height);
+    canvas.getContext('2d').drawImage(video,0,0,canvasElement.width,canvasElement.height);
+    const imageData=canvas.getContext('2d').getImageData(0,0,canvasElement.width,canvasElement.height);
     const code=window.jsQR(imageData.data,imageData.width,imageData.height,{inversionAttempts:"dontInvert"});
     if(code){
       if(navigator.vibrate)navigator.vibrate(200);
       try{let ctx=new(window.AudioContext||window.webkitAudioContext)();let o=ctx.createOscillator();let g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.setValueAtTime(880,ctx.currentTime);o.start();o.stop(ctx.currentTime+0.15);}catch(e){}
-      closeExamScanner();
-      alert("Okunan Sınav QR Kodu: " + code.data);
+      processScannedQR(code.data);
       return;
     }
   }
   requestAnimationFrame(()=>scanTick(video,canvasElement,canvas));
 }
+
+async function processScannedQR(qrText){
+  closeExamScanner();
+  const parts=qrText.split(':');
+  if(parts.length>=4&&parts[0]==='dersapp'&&parts[1]==='exam'){
+    const xid=parts[2];
+    const studentId=parts[3];
+
+    try{
+      const dbInstance=getDb();
+      const coursesSnap=await dbInstance.collection('courses').get();
+      let foundCid=null;
+      let keyData=null;
+
+      for(let docSnap of coursesSnap.docs){
+        const cid=docSnap.id;
+        const keyDoc=await dbInstance.collection('courses').doc(cid).collection('tx').doc(xid).collection('key').doc('main').get();
+        if(keyDoc.exists){
+          foundCid=cid;
+          keyData=keyDoc.data().a||{};
+          break;
+        }
+      }
+
+      if(!foundCid||!keyData){
+        alert('Bu sınavın cevap anahtarı veritabanında bulunamadı (Sınav ID: '+xid+').');
+        return;
+      }
+
+      const resDoc=await dbInstance.collection('courses').doc(foundCid).collection('tx').doc(xid).collection('res').doc(studentId).get();
+      const studentAnswers=(resDoc.exists&&resDoc.data().a)||{};
+
+      let correct=0, incorrect=0, empty=0;
+      const total=Object.keys(keyData).length;
+      for(let qNo of Object.keys(keyData)){
+        const correctAns=(keyData[qNo]||'').trim().toUpperCase();
+        const studentAns=(studentAnswers[qNo]||'-').trim().toUpperCase();
+        if(!studentAns||studentAns==='-')empty++;
+        else if(studentAns===correctAns)correct++;
+        else incorrect++;
+      }
+      const score=total>0?Math.round((correct/total)*100):0;
+
+      await dbInstance.collection('courses').doc(foundCid).collection('tx').doc(xid).collection('res').doc(studentId).set({
+        no: studentId,
+        st: Date.now(),
+        a: studentAnswers,
+        fin: true,
+        fat: Date.now(),
+        manual: false,
+        scanned: true
+      },{merge:true});
+
+      showResultModal(studentId, score, correct, incorrect, empty, total);
+    }catch(err){
+      console.error(err);
+      alert('Sınav puanlanırken hata oluştu: '+(err.message||err));
+    }
+  }else{
+    alert('Geçersiz sınav QR kodu: '+qrText);
+  }
+}
+
+function showResultModal(studentId, score, correct, incorrect, empty, total){
+  const overlay=document.createElement('div');
+  overlay.className='scanner-overlay';
+  overlay.innerHTML=`
+    <div class="card" style="max-width:400px; width:100%; text-align:center; background:var(--cd); padding:20px; border-radius:16px; color:var(--tx);">
+      <h2 style="margin:0 0 8px;">Sınav Sonucu</h2>
+      <div style="font-size:48px; font-weight:800; color:var(--ac); margin:12px 0;">${score} Puan</div>
+      <div class="mut" style="margin-bottom:16px;">Öğrenci No: <b>${studentId}</b></div>
+      <div class="stats s3" style="margin-bottom:20px; display:flex; justify-content:space-around;">
+        <div class="stat"><span style="color:#8FD6B1">Doğru</span><b>${correct}</b></div>
+        <div class="stat"><span style="color:#F29B9B">Yanlış</span><b>${incorrect}</b></div>
+        <div class="stat"><span>Boş</span><b>${empty}</b></div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn" style="flex:1;" onclick="this.closest('.scanner-overlay').remove(); openExamScanner();">Sonraki Kağıdı Oku</button>
+        <button type="button" class="btn sec" style="flex:1;" onclick="this.closest('.scanner-overlay').remove();">Kapat</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
 function closeExamScanner(){
   scannerActive=false;
   if(scannerStream){scannerStream.getTracks().forEach(t=>t.stop());scannerStream=null;}
