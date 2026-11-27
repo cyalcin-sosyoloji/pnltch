@@ -28,6 +28,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Extract ZIP archive
         run: unzip -q sinav-apk.zip -d extracted
 
@@ -37,7 +40,8 @@ jobs:
           npm install
           npx cap add android
           npx cap sync android
-                - name: Kamera iznini ekle
+
+      - name: Kamera iznini ekle
         working-directory: extracted/sinav-apk
         run: |
           python3 - <<'PY'
@@ -48,6 +52,8 @@ jobs:
           permission = '<uses-permission android:name="android.permission.CAMERA" />'
 
           if permission not in text:
+              if "<application" not in text:
+                  raise SystemExit("AndroidManifest.xml içinde <application> etiketi bulunamadı")
               text = text.replace(
                   "<application",
                   permission + "\n    <application",
