@@ -37,6 +37,24 @@ jobs:
           npm install
           npx cap add android
           npx cap sync android
+                - name: Kamera iznini ekle
+        working-directory: extracted/sinav-apk
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+          permission = '<uses-permission android:name="android.permission.CAMERA" />'
+
+          if permission not in text:
+              text = text.replace(
+                  "<application",
+                  permission + "\n    <application",
+                  1
+              )
+              manifest.write_text(text)
+          PY
 
       - name: Build debug APK
         working-directory: extracted/sinav-apk/android
