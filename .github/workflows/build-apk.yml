@@ -34,16 +34,13 @@ jobs:
       - name: Extract ZIP archive
         run: unzip -q sinav-apk.zip -d extracted
 
-      - name: Install dependencies and prepare Android project
+      - name: Prepare project and add camera permission
         working-directory: extracted/sinav-apk
         run: |
           npm install
           npx cap add android
           npx cap sync android
 
-      - name: Kamera iznini ekle
-        working-directory: extracted/sinav-apk
-        run: |
           python3 - <<'PY'
           from pathlib import Path
 
